@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  adapter:
+    build: .
+    container_name: bca_adapter
+    ports:
+      - "${ADAPTER_PORT:-3005}:3005"
+    environment:
+      - BANK_CORE_URL=${BANK_CORE_URL}
+      - HUB_CALLBACK_URL=${HUB_CALLBACK_URL}
+    env_file:
+      - .env

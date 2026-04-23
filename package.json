@@ -1,0 +1,20 @@
+{
+  "name": "@open-banking/adapter",
+  "version": "0.1.0",
+  "description": "Standalone Open Banking Adapter (Mojaloop style). Bridges legacy bank cores to the Open Banking Hub.",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.7",
+    "express-session": "^1.18.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
