@@ -5,6 +5,7 @@ import axios from 'axios';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
+import mojaloopService from './services/mojaloopService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -145,6 +146,74 @@ app.get('/accounts/:accountId/transactions', async (req, res) => {
     } catch (err) {
         console.error(`[Adapter] Failed to fetch transactions for ${accountId}:`, err.message);
         res.status(502).json({ error: 'Core Bank communication failed' });
+    }
+});
+
+/**
+ * TRANSFER ENDPOINTS (Mojaloop 3-Step Flow)
+ */
+
+// Helper: extrai Bearer Token e valida
+function extractBearer(req, res) {
+    const auth = req.headers['authorization'];
+    if (!auth || !auth.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Missing or invalid Bearer token' });
+        return null;
+    }
+    return auth.split(' ')[1];
+}
+
+// PASSO 1 — Iniciar transferência
+app.post('/transfers', async (req, res) => {
+    const token = extractBearer(req, res);
+    if (!token) return;
+
+    const { amount, currency, debtorAccount, creditorAccount, creditorName } = req.body;
+    if (!amount || !creditorAccount || !creditorName) {
+        return res.status(400).json({ error: 'amount, creditorAccount and creditorName are required' });
+    }
+
+    try {
+        const result = await mojaloopService.initiateTransfer({ amount, currency, debtorAccount, creditorAccount, creditorName });
+        console.log(`[Adapter] Transfer initiated → mojaloopId: ${result.mojaloopTransferId}`);
+        res.status(201).json(result);
+    } catch (err) {
+        console.error('[Adapter] initiateTransfer failed:', err.message);
+        res.status(502).json({ error: 'Mojaloop communication failed', detail: err.message });
+    }
+});
+
+// PASSO 2 — Confirmar destinatário e obter cotação
+app.put('/transfers/:mojaloopId/confirm-party', async (req, res) => {
+    const token = extractBearer(req, res);
+    if (!token) return;
+
+    const { mojaloopId } = req.params;
+
+    try {
+        const result = await mojaloopService.confirmParty(mojaloopId);
+        console.log(`[Adapter] Party confirmed for ${mojaloopId}`);
+        res.json(result);
+    } catch (err) {
+        console.error('[Adapter] confirmParty failed:', err.message);
+        res.status(502).json({ error: 'Mojaloop communication failed', detail: err.message });
+    }
+});
+
+// PASSO 3 — Confirmar cotação e executar transferência
+app.put('/transfers/:mojaloopId/confirm-quote', async (req, res) => {
+    const token = extractBearer(req, res);
+    if (!token) return;
+
+    const { mojaloopId } = req.params;
+
+    try {
+        const result = await mojaloopService.confirmQuote(mojaloopId);
+        console.log(`[Adapter] Quote confirmed for ${mojaloopId} → ${result.status}`);
+        res.json(result);
+    } catch (err) {
+        console.error('[Adapter] confirmQuote failed:', err.message);
+        res.status(502).json({ error: 'Mojaloop communication failed', detail: err.message });
     }
 });
 

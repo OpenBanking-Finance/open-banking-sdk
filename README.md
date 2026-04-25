@@ -1,13 +1,16 @@
 # Open Banking Adapter 🛡️🏦
 
-The **Open Banking Adapter** is a standalone bridge service designed to connect legacy or multi-language core banking systems (Java, C#, Mainframe, etc.) to the Open Banking Hub.
+The **Open Banking Adapter** is a secure, neutral, and production-ready bridge designed to connect legacy core banking systems (Java, C#, Mainframe, etc.) to a standardized Open Banking Hub ecosystem.
 
-It follows the **Adapter Pattern** (similar to Mojaloop's Scheme Adapter) to ensure that the core banking code remains untouched while providing a fully compliant Open Banking interface.
+It implements the **Security-First Adapter Pattern**, ensuring that your core banking logic remains isolated while providing a FAPI-compliant interface (OIDC/OAuth2 style) to the external world.
 
-## Architecture
+## Key Features
 
-1.  **Facing the Hub**: The adapter implements the standardized Open Banking API (OAuth2, JWS, Resource endpoints).
-2.  **Facing the Bank Core**: The adapter communicates with the bank's internal system via simple, private REST/JSON endpoints.
+- **RSA Security**: Real JWT signing using RSA-256 asymmetric keys.
+- **JWKS Endpoint**: Exposes public keys at `/.well-known/jwks.json` for automatic signature validation by the Hub.
+- **Neutral UI**: Modern, clean, and institution-agnostic Login and Authorisation screens.
+- **Resource Proxying**: Transparently maps Open Banking resource requests (Accounts, Transactions) to the internal Bank Core API.
+- **Stateless & Containerized**: Easy to scale and deploy via Docker.
 
 ## Quick Start
 
@@ -21,9 +24,10 @@ npm install
 Create a `.env` file based on `.env.example`:
 ```env
 ADAPTER_PORT=3005
-BANK_CORE_URL=http://your-internal-bank-api.com
-BANK_NAME=Your Bank Name
-HUB_CALLBACK_URL=http://hub-url.com/consents/callback
+BANK_NAME=Adapter Bank (Open Source)
+BANK_CORE_URL=http://localhost:8082
+HUB_CALLBACK_URL=http://127.0.0.1:3000/consents/callback
+SESSION_SECRET=your-very-secure-secret
 ```
 
 ### 3. Run the Adapter
@@ -31,19 +35,28 @@ HUB_CALLBACK_URL=http://hub-url.com/consents/callback
 npm start
 ```
 
-## Integration (The Bank's Task)
+## Internal API Requirements (The Bank's Task)
 
-To use this adapter, your internal team only needs to expose two simple endpoints in your core system:
+To integrate this adapter, the internal core banking system must expose the following private endpoints:
 
-- **POST `/internal/login`**: Should receive `{username, password}` and return `{valid: true}` if credentials are correct.
-- **GET `/internal/accounts?user=:userId`**: Should return a JSON array of accounts belonging to that user.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/internal/login` | POST | Receives `{username, password}`. Returns `{valid: true, userId: "1"}`. |
+| `/internal/accounts` | GET | Query param `user`. Returns a JSON array of accounts. |
+| `/internal/accounts/{id}/transactions` | GET | Returns a JSON array of transaction history for the account. |
+
+## Connectivity & Networking Tips 🌐
+
+When running in a local development environment with Docker, keep these tips in mind:
+
+- **Inside Docker to Host machine**: If the Adapter is in Docker but your Bank Core is running locally (e.g., Spring Boot), use `http://host.docker.internal:PORT` instead of `localhost`.
+- **IPv6 Issues**: Some versions of Node.js prefer IPv6 (`::1`). If connection fails, use the explicit IPv4 address `127.0.0.1` in your configurations.
+- **Shared Networks**: For production-like testing, create a shared Docker network and use container names as hostnames (e.g., `http://core-bank-api:8082`).
 
 ## Docker Deployment
 
-The adapter is containerized for easy deployment:
 ```bash
-docker build -t Open Banking-ob-adapter .
-docker run -p 3005:3005 --env-file .env Open Banking-ob-adapter
+docker compose up -d --build
 ```
 
 ## License
