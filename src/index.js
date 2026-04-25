@@ -277,7 +277,17 @@ app.get('/accounts', async (req, res) => {
     try {
         console.log(`[Adapter] Calling Core Bank: ${BANK_CORE_URL}/internal/accounts?user=${userId}`);
         const response = await axios.get(`${BANK_CORE_URL}/internal/accounts?user=${userId}`);
-        res.json({ accounts: response.data, bank: process.env.BANK_NAME || 'Adapter Bank' });
+
+        // Normaliza a lista de contas garantindo sempre accountName e accountType
+        const accounts = (Array.isArray(response.data) ? response.data : []).map(acc => ({
+            id: acc.id,
+            accountName: acc.accountName || acc.displayName || acc.id,
+            accountType: acc.accountType || acc.type || 'SAVINGS',
+            balance: acc.balance,
+            currency: acc.currency
+        }));
+
+        res.json({ accounts, bank: process.env.BANK_NAME || 'Adapter Bank' });
     } catch (err) {
         console.error(`[Adapter] Core Bank communication failed for user ${userId}:`, err.message);
         res.status(502).json({ error: 'Core Bank communication failed' });
