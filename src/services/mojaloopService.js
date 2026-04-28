@@ -58,10 +58,7 @@ class MojaloopService {
       acceptParty: true
     })
 
-    // Aguarda processamento
-    await new Promise(r => setTimeout(r, 500))
-
-    const { data } = await axios.get(`${MOJALOOP_SDK_URL}/transfers/${mojaloopTransferId}`)
+    const { data } = await this._pollUntilQuoteReady(mojaloopTransferId)
 
     console.log(`[Mojaloop] Quote received. Fee: ${data.quoteResponse?.transferAmount?.amount}`)
 
@@ -74,6 +71,17 @@ class MojaloopService {
         condition: data.quoteResponse?.condition || null
       }
     }
+  }
+
+  async _pollUntilQuoteReady(mojaloopTransferId, maxAttempts = 10, intervalMs = 300) {
+    for (let i = 0; i < maxAttempts; i++) {
+      const { data } = await axios.get(`${MOJALOOP_SDK_URL}/transfers/${mojaloopTransferId}`)
+      if (data.currentState === 'WAITING_FOR_QUOTE_ACCEPTANCE' || data.quoteResponse) {
+        return { data }
+      }
+      await new Promise(r => setTimeout(r, intervalMs))
+    }
+    throw new Error(`Mojaloop quote not ready after ${maxAttempts} attempts`)
   }
 
   /**
