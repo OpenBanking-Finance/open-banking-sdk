@@ -5,7 +5,6 @@ import axios from 'axios';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import mojaloopService from './services/mojaloopService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -163,7 +162,7 @@ function extractBearer(req, res) {
     return auth.split(' ')[1];
 }
 
-// PASSO 1 — Iniciar transferência
+// PASSO 1 — Iniciar transferência (delega ao Bank Core → Mojaloop SDK)
 app.post('/transfers', async (req, res) => {
     const token = extractBearer(req, res);
     if (!token) return;
@@ -174,12 +173,21 @@ app.post('/transfers', async (req, res) => {
     }
 
     try {
-        const result = await mojaloopService.initiateTransfer({ amount, currency, debtorAccount, creditorAccount, creditorName });
-        console.log(`[Adapter] Transfer initiated → mojaloopId: ${result.mojaloopTransferId}`);
-        res.status(201).json(result);
+        const { data } = await axios.post(`${BANK_CORE_URL}/transfer`, {
+            fromAccount: debtorAccount,
+            toAccount: creditorAccount,
+            currency,
+            amount: String(amount)
+        }, { headers: { Authorization: `Bearer ${token}` } });
+
+        console.log(`[Adapter] Transfer initiated → mojaloopId: ${data.transferId}`);
+        res.status(201).json({
+            mojaloopTransferId: data.transferId,
+            partyInfo: { name: data.party.name, account: data.party.account, fspId: data.party.fspId }
+        });
     } catch (err) {
         console.error('[Adapter] initiateTransfer failed:', err.message);
-        res.status(502).json({ error: 'Mojaloop communication failed', detail: err.message });
+        res.status(err.response?.status || 502).json({ error: 'Bank Core communication failed', detail: err.message });
     }
 });
 
@@ -191,12 +199,20 @@ app.put('/transfers/:mojaloopId/confirm-party', async (req, res) => {
     const { mojaloopId } = req.params;
 
     try {
-        const result = await mojaloopService.confirmParty(mojaloopId);
+        const { data } = await axios.put(`${BANK_CORE_URL}/transfer/${mojaloopId}/confirm-party`,
+            {}, { headers: { Authorization: `Bearer ${token}` } });
+
         console.log(`[Adapter] Party confirmed for ${mojaloopId}`);
-        res.json(result);
+        res.json({
+            quoteInfo: {
+                transferAmount: { amount: data.quote.transferAmount, currency: data.quote.currency },
+                payeeFspFee:    { amount: data.quote.fee,            currency: data.quote.currency },
+                expiration:     data.quote.expiration
+            }
+        });
     } catch (err) {
         console.error('[Adapter] confirmParty failed:', err.message);
-        res.status(502).json({ error: 'Mojaloop communication failed', detail: err.message });
+        res.status(err.response?.status || 502).json({ error: 'Bank Core communication failed', detail: err.message });
     }
 });
 
@@ -208,12 +224,15 @@ app.put('/transfers/:mojaloopId/confirm-quote', async (req, res) => {
     const { mojaloopId } = req.params;
 
     try {
-        const result = await mojaloopService.confirmQuote(mojaloopId);
-        console.log(`[Adapter] Quote confirmed for ${mojaloopId} → ${result.status}`);
-        res.json(result);
+        const { data } = await axios.put(`${BANK_CORE_URL}/transfer/${mojaloopId}/confirm-quote`,
+            {}, { headers: { Authorization: `Bearer ${token}` } });
+
+        const status = data.status === 'COMMITTED' ? 'COMPLETED' : 'FAILED';
+        console.log(`[Adapter] Quote confirmed for ${mojaloopId} → ${status}`);
+        res.json({ status });
     } catch (err) {
         console.error('[Adapter] confirmQuote failed:', err.message);
-        res.status(502).json({ error: 'Mojaloop communication failed', detail: err.message });
+        res.status(err.response?.status || 502).json({ error: 'Bank Core communication failed', detail: err.message });
     }
 });
 
