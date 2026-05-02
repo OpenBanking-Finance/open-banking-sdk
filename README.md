@@ -33,8 +33,11 @@ The adapter sits in front of the real banking system. The Hub only ever talks to
 
 - RSA-256 JWT signing (keys generated at startup, public key at `/.well-known/jwks.json`)
 - Login UI backed by the Bank Core `/internal/login` endpoint
-- Authorisation screen served from `public/authorise.html`
+- Dynamic authorisation screen: fetches user accounts from the Bank Core and renders permission + account checkboxes (PSD2-style granular consent)
+- Dependency enforcement: selecting `PAYMENTS_WRITE` locks `ACCOUNTS_READ` and `TRANSACTIONS_READ` as required
+- `granted_permissions` and `selected_accounts` returned in the token response so the Hub can enforce them
 - Accounts and transactions proxied from the Bank Core
+- `toAccountType` forwarded to the Bank Core for correct Mojaloop oracle selection (`MSISDN`, `ACCOUNT_ID`, `BUSINESS`)
 - 3-step Mojaloop transfer flow (Initiate → Confirm Party → Confirm Quote)
 
 ---
@@ -90,33 +93,39 @@ Entry point for the consent authorization flow. If the user is not logged in, re
 |---|---|
 | `consentId` | Consent UUID issued by the Hub |
 | `redirect_uri` | Hub callback URL to redirect to after approval |
+| `permissions` | JSON-encoded array of permissions requested by the fintech |
 
 **Behavior:**
-- If `req.session.bankUser` is set → serves `public/authorise.html`
-- Otherwise → redirects to `/login?consentId=...&redirect_uri=...`
+- If `req.session.bankUser` is **not** set → redirects to `/login?consentId=...&redirect_uri=...&permissions=...`
+- If set → fetches accounts from `{BANK_CORE_URL}/internal/accounts?user={userId}` and renders a dynamic HTML page with:
+  - Permission checkboxes for each requested permission (all pre-checked)
+  - Account checkboxes for each account the user holds (all pre-checked)
+  - JavaScript dependency rule: checking `PAYMENTS_WRITE` forces `ACCOUNTS_READ` + `TRANSACTIONS_READ` on and disables unchecking them
 
 ---
 
 #### `POST /consents/authorise`
 
-Called when the user clicks "Approve" on the authorise screen.
+Called when the user submits the authorise screen.
 
 **Form body**
 | Field | Description |
 |---|---|
 | `consentId` | Consent UUID |
 | `redirect_uri` | Hub callback URL |
+| `grantedPermissions` | One or more permission values (checkbox array) |
+| `selectedAccounts` | One or more account IDs (checkbox array) |
 
 **Behavior:**
 1. Generates a random authorization code
-2. Stores `{ consentId, userId }` in memory keyed by the code
+2. Stores `{ consentId, userId, grantedPermissions, selectedAccounts }` in memory keyed by the code
 3. Redirects to `{redirect_uri}?code={authCode}&consentId={consentId}`
 
 ---
 
 #### `POST /token`
 
-Token exchange. Called by the Hub after receiving the authorization code.
+Token exchange. Called by the Hub after receiving the authorization code. Invalidates the code after use.
 
 **Request body**
 ```json
@@ -128,6 +137,8 @@ Token exchange. Called by the Hub after receiving the authorization code.
 {
   "access_token": "<RS256 JWT>",
   "bank_user_id": "joao",
+  "granted_permissions": ["ACCOUNTS_READ", "TRANSACTIONS_READ"],
+  "selected_accounts": ["acc-001"],
   "expires_in": 3600
 }
 ```
@@ -248,9 +259,14 @@ Authorization: Bearer <JWT>
   "currency": "CVE",
   "debtorAccount": "acc-001",
   "creditorAccount": "acc-beta-002",
-  "creditorName": "Maria Souza"
+  "creditorName": "Maria Souza",
+  "toAccountType": "MSISDN"
 }
 ```
+
+| Field | Default | Description |
+|---|---|---|
+| `toAccountType` | `MSISDN` | Mojaloop oracle type: `MSISDN`, `ACCOUNT_ID`, or `BUSINESS` |
 
 **Internal call to Mojaloop SDK**
 ```
@@ -360,9 +376,20 @@ The adapter expects the internal Bank Core to expose these private HTTP endpoint
 **Response**
 ```json
 [
-  { "id": "acc-001", "accountName": "Checking", "balance": 5000.00, "currency": "CVE" }
+  {
+    "id": "acc-001",
+    "accountName": "Checking",
+    "accountType": "CURRENT",
+    "balance": 5000.00,
+    "currency": "CVE",
+    "msisdn": "23000000010",
+    "partyType": "CONSUMER",
+    "businessId": null
+  }
 ]
 ```
+
+> `msisdn`, `partyType`, and `businessId` are required for correct Mojaloop party lookup. `partyType` is `"CONSUMER"` for personal accounts and `"BUSINESS"` for business accounts.
 
 ---
 
