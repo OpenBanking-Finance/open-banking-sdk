@@ -1,54 +1,110 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Autorizar Acesso - Instituição Financeira</title>
-    <style>
-        body { font-family: Arial, sans-serif; background-color: #f4f7f6; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .auth-box { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 350px; text-align: center; }
-        h2 { color: #005A9C; margin-bottom: 1rem; }
-        .details { background: #eef2f5; padding: 10px; border-radius: 4px; margin-bottom: 1.5rem; text-align: left; font-size: 0.9rem; color: #444; }
-        button { width: 100%; padding: 12px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; margin-bottom: 10px; }
-        button:hover { background-color: #218838; }
-        .btn-cancel { background-color: #dc3545; }
-        .btn-cancel:hover { background-color: #c82333; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Authorize Access — {{BANK_NAME}}</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:Arial,sans-serif;background:#f4f7f6;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;margin:0;padding:2rem 1rem}
+    .card{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);width:100%;max-width:440px}
+    h2{color:#005A9C;margin:0 0 .25rem}
+    .bank-name{color:#005A9C;font-size:.85rem;margin-bottom:.5rem;font-weight:normal}
+    .subtitle{color:#666;font-size:.9rem;margin-bottom:1.5rem;border-bottom:1px solid #eee;padding-bottom:1rem}
+    .section-title{font-weight:bold;font-size:.8rem;color:#555;text-transform:uppercase;letter-spacing:.06em;margin:1rem 0 .5rem}
+    .section.hidden{display:none}
+    .perm-row{display:flex;align-items:center;gap:.75rem;padding:.65rem .5rem;border:1px solid #e0e0e0;border-radius:6px;margin-bottom:.4rem;cursor:pointer;transition:background .15s}
+    .perm-row:hover{background:#f5f8ff}
+    .perm-row input{flex-shrink:0;width:17px;height:17px;cursor:pointer;accent-color:#005A9C}
+    .perm-icon{font-size:1.1rem}
+    .perm-label{font-size:.9rem;color:#222;flex:1}
+    .perm-row.disabled{opacity:.45;pointer-events:none}
+    .acc-row{display:flex;align-items:center;gap:.75rem;padding:.6rem .5rem;border:1px solid #e0e0e0;border-radius:6px;margin-bottom:.4rem;cursor:pointer;transition:background .15s}
+    .acc-row:hover{background:#f5f8ff}
+    .acc-row input{flex-shrink:0;width:17px;height:17px;cursor:pointer;accent-color:#005A9C}
+    .acc-name{flex:1;font-size:.9rem;color:#222}
+    .acc-meta{font-size:.78rem;color:#888}
+    .hint{font-size:.78rem;color:#e67e00;margin:.25rem 0 .5rem .5rem;display:none}
+    .actions{margin-top:1.5rem;display:flex;flex-direction:column;gap:.5rem}
+    .btn{width:100%;padding:12px;border:none;border-radius:6px;cursor:pointer;font-size:.95rem;font-weight:600}
+    .btn-approve{background:#005A9C;color:#fff}
+    .btn-approve:hover{background:#004a82}
+    .btn-deny{background:#fff;color:#dc3545;border:1.5px solid #dc3545}
+    .btn-deny:hover{background:#fff5f5}
+  </style>
 </head>
 <body>
-    <div class="auth-box">
-        <h2>Autorização de Acesso</h2>
-        <p>Um aplicativo terceiro (Fintech) está solicitando acesso aos seus dados bancários.</p>
-        
-        <div class="details">
-            <strong>Permissões solicitadas:</strong>
-            <ul>
-                <li>Leitura de saldo das contas</li>
-                <li>Leitura de histórico de transações</li>
-            </ul>
-        </div>
-        
-        <form action="/consents/authorise" method="POST" id="authForm">
-            <input type="hidden" name="consentId" id="consentId">
-            <input type="hidden" name="redirect_uri" id="redirectUri">
-            
-            <button type="submit">Aprovar Acesso</button>
-        </form>
-        
-        <button class="btn-cancel" onclick="cancel()">Negar Acesso</button>
+  <div class="card">
+    <h2>Access Authorization</h2>
+    <p class="bank-name">{{BANK_NAME}}</p>
+    <p class="subtitle">A third-party application is requesting access to your account. Select what you want to share.</p>
+
+    <form action="/consents/authorise" method="POST" id="authForm">
+      <input type="hidden" name="consentId"    value="{{CONSENT_ID}}">
+      <input type="hidden" name="redirect_uri" value="{{REDIRECT_URI}}">
+
+      <div class="section {{PERMISSIONS_HIDDEN}}">
+        <p class="section-title">Requested Permissions</p>
+        {{PERMISSION_ROWS}}
+        <p class="hint" id="payments-hint">⚠️ Payments require access to account balance and transaction history</p>
+      </div>
+
+      <div class="section {{ACCOUNTS_HIDDEN}}">
+        <p class="section-title">Accounts to share</p>
+        {{ACCOUNT_ROWS}}
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn btn-approve">Confirm &amp; Authorize</button>
+      </div>
+    </form>
+
+    <div class="actions">
+      <button class="btn btn-deny" onclick="deny()">Deny Access</button>
     </div>
+  </div>
 
-    <script>
-        const params = new URLSearchParams(window.location.search);
-        document.getElementById('consentId').value = params.get('consentId') || '';
-        document.getElementById('redirectUri').value = params.get('redirect_uri') || '';
+  <script>
+    const paymentsBox = document.getElementById('perm-PAYMENTS_WRITE');
+    const accountsBox = document.getElementById('perm-ACCOUNTS_READ');
+    const txBox       = document.getElementById('perm-TRANSACTIONS_READ');
+    const hint        = document.getElementById('payments-hint');
 
-        function cancel() {
-            const redirectUri = params.get('redirect_uri') || 'http://127.0.0.1:3000/consents/callback';
-            const consentId = params.get('consentId') || '';
-            // Return to hub with REJECTED status
-            window.location.href = `${redirectUri}?consentId=${consentId}&status=REJECTED`;
-        }
-    </script>
+    function enforceDeps() {
+      if (!paymentsBox) return;
+      if (paymentsBox.checked) {
+        if (accountsBox) accountsBox.checked = true;
+        if (txBox)       txBox.checked = true;
+        ['ACCOUNTS_READ', 'TRANSACTIONS_READ'].forEach(function(p) {
+          const row = document.getElementById('perm-row-' + p);
+          if (row) row.classList.add('disabled');
+        });
+        if (hint) hint.style.display = 'block';
+      } else {
+        ['ACCOUNTS_READ', 'TRANSACTIONS_READ'].forEach(function(p) {
+          const row = document.getElementById('perm-row-' + p);
+          if (row) row.classList.remove('disabled');
+        });
+        if (hint) hint.style.display = 'none';
+      }
+    }
+
+    if (accountsBox) accountsBox.addEventListener('change', function() {
+      if (paymentsBox && paymentsBox.checked) this.checked = true;
+    });
+    if (txBox) txBox.addEventListener('change', function() {
+      if (paymentsBox && paymentsBox.checked) this.checked = true;
+    });
+
+    if (paymentsBox) paymentsBox.addEventListener('change', enforceDeps);
+    enforceDeps();
+
+    function deny() {
+      const form  = document.getElementById('authForm');
+      const redir = form.querySelector('[name="redirect_uri"]').value || 'http://127.0.0.1:3000/consents/callback';
+      const cId   = form.querySelector('[name="consentId"]').value;
+      window.location.href = redir + '?consentId=' + cId + '&status=REJECTED';
+    }
+  </script>
 </body>
 </html>

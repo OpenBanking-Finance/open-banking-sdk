@@ -1,6 +1,7 @@
 import express from 'express';
 import session from 'express-session';
 import path from 'path';
+import fs from 'fs';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
@@ -84,11 +85,9 @@ app.get('/consents/authorise', async (req, res) => {
     // Build permission checkboxes
     const permissionRows = requestedPermissions.map(perm => {
         const info = PERMISSION_LABELS[perm] || { label: perm, icon: '🔑' };
-        const deps = perm === 'PAYMENTS_WRITE' ? 'data-requires="ACCOUNTS_READ,TRANSACTIONS_READ"' : '';
-        const requiredBy = (perm === 'ACCOUNTS_READ' || perm === 'TRANSACTIONS_READ') ? `data-required-by="PAYMENTS_WRITE"` : '';
         return `
         <label class="perm-row" id="perm-row-${perm}">
-          <input type="checkbox" name="grantedPermissions" value="${perm}" id="perm-${perm}" checked ${deps} ${requiredBy}>
+          <input type="checkbox" name="grantedPermissions" value="${perm}" id="perm-${perm}" checked>
           <span class="perm-icon">${info.icon}</span>
           <span class="perm-label">${info.label}</span>
         </label>`;
@@ -102,119 +101,17 @@ app.get('/consents/authorise', async (req, res) => {
           <span class="acc-meta">${acc.accountType || ''} · ${acc.balance ?? ''} ${acc.currency || ''}</span>
         </label>`).join('');
 
-    res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Authorize Access — ${process.env.BANK_NAME || 'Bank'}</title>
-  <style>
-    *{box-sizing:border-box}
-    body{font-family:Arial,sans-serif;background:#f4f7f6;display:flex;justify-content:center;align-items:flex-start;min-height:100vh;margin:0;padding:2rem 1rem}
-    .card{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);width:100%;max-width:440px}
-    h2{color:#005A9C;margin:0 0 .25rem}
-    .bank-name{color:#005A9C;font-size:.85rem;margin-bottom:.5rem;font-weight:normal}
-    .subtitle{color:#666;font-size:.9rem;margin-bottom:1.5rem;border-bottom:1px solid #eee;padding-bottom:1rem}
-    .section-title{font-weight:bold;font-size:.8rem;color:#555;text-transform:uppercase;letter-spacing:.06em;margin:1rem 0 .5rem}
-    /* Permission rows */
-    .perm-row{display:flex;align-items:center;gap:.75rem;padding:.65rem .5rem;border:1px solid #e0e0e0;border-radius:6px;margin-bottom:.4rem;cursor:pointer;transition:background .15s}
-    .perm-row:hover{background:#f5f8ff}
-    .perm-row input{flex-shrink:0;width:17px;height:17px;cursor:pointer;accent-color:#005A9C}
-    .perm-icon{font-size:1.1rem}
-    .perm-label{font-size:.9rem;color:#222;flex:1}
-    .perm-row.disabled{opacity:.45;pointer-events:none}
-    /* Account rows */
-    .acc-row{display:flex;align-items:center;gap:.75rem;padding:.6rem .5rem;border:1px solid #e0e0e0;border-radius:6px;margin-bottom:.4rem;cursor:pointer;transition:background .15s}
-    .acc-row:hover{background:#f5f8ff}
-    .acc-row input{flex-shrink:0;width:17px;height:17px;cursor:pointer;accent-color:#005A9C}
-    .acc-name{flex:1;font-size:.9rem;color:#222}
-    .acc-meta{font-size:.78rem;color:#888}
-    .hint{font-size:.78rem;color:#e67e00;margin:.25rem 0 .5rem .5rem}
-    /* Buttons */
-    .actions{margin-top:1.5rem;display:flex;flex-direction:column;gap:.5rem}
-    .btn{width:100%;padding:12px;border:none;border-radius:6px;cursor:pointer;font-size:.95rem;font-weight:600}
-    .btn-approve{background:#005A9C;color:#fff}
-    .btn-approve:hover{background:#004a82}
-    .btn-deny{background:#fff;color:#dc3545;border:1.5px solid #dc3545}
-    .btn-deny:hover{background:#fff5f5}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h2>Access Authorization</h2>
-    <p class="bank-name">${process.env.BANK_NAME || 'Bank'}</p>
-    <p class="subtitle">A third-party application is requesting access to your account. Select what you want to share.</p>
+    const template = fs.readFileSync(path.join(__dirname, '../public/authorise.html'), 'utf8');
+    const html = template
+        .replace(/{{BANK_NAME}}/g,          process.env.BANK_NAME || 'Bank')
+        .replace('{{CONSENT_ID}}',           consentId || '')
+        .replace('{{REDIRECT_URI}}',         redirect_uri || '')
+        .replace('{{PERMISSION_ROWS}}',      permissionRows)
+        .replace('{{ACCOUNT_ROWS}}',         accountRows)
+        .replace('{{PERMISSIONS_HIDDEN}}',   requestedPermissions.length === 0 ? 'hidden' : '')
+        .replace('{{ACCOUNTS_HIDDEN}}',      accounts.length === 0 ? 'hidden' : '');
 
-    <form action="/consents/authorise" method="POST" id="authForm">
-      <input type="hidden" name="consentId" value="${consentId || ''}">
-      <input type="hidden" name="redirect_uri" value="${redirect_uri || ''}">
-
-      ${requestedPermissions.length > 0 ? `
-      <p class="section-title">Requested Permissions</p>
-      ${permissionRows}
-      <p class="hint" id="payments-hint" style="display:none">⚠️ Payments require access to account balance and transaction history</p>
-      ` : ''}
-
-      ${accounts.length > 0 ? `
-      <p class="section-title">Accounts to share</p>
-      ${accountRows}
-      ` : ''}
-
-      <div class="actions">
-        <button type="submit" class="btn btn-approve">Confirm & Authorize</button>
-      </div>
-    </form>
-    <div class="actions">
-      <button class="btn btn-deny" onclick="deny()">Deny Access</button>
-    </div>
-  </div>
-
-  <script>
-    // Dependency: PAYMENTS_WRITE requires ACCOUNTS_READ + TRANSACTIONS_READ
-    const paymentsBox = document.getElementById('perm-PAYMENTS_WRITE');
-    const accountsBox = document.getElementById('perm-ACCOUNTS_READ');
-    const txBox       = document.getElementById('perm-TRANSACTIONS_READ');
-    const hint        = document.getElementById('payments-hint');
-
-    function enforceDeps() {
-      if (!paymentsBox) return;
-      if (paymentsBox.checked) {
-        // Force dependencies on — use CSS lock, NOT disabled (disabled prevents form submission)
-        if (accountsBox) { accountsBox.checked = true; }
-        if (txBox)       { txBox.checked = true; }
-        ['ACCOUNTS_READ', 'TRANSACTIONS_READ'].forEach(function(p) {
-          const row = document.getElementById('perm-row-' + p);
-          if (row) row.classList.add('disabled');
-        });
-        if (hint) hint.style.display = 'block';
-      } else {
-        ['ACCOUNTS_READ', 'TRANSACTIONS_READ'].forEach(function(p) {
-          const row = document.getElementById('perm-row-' + p);
-          if (row) row.classList.remove('disabled');
-        });
-        if (hint) hint.style.display = 'none';
-      }
-    }
-
-    // Prevent unchecking forced permissions by rechecking immediately
-    if (accountsBox) accountsBox.addEventListener('change', function() {
-      if (paymentsBox && paymentsBox.checked) this.checked = true;
-    });
-    if (txBox) txBox.addEventListener('change', function() {
-      if (paymentsBox && paymentsBox.checked) this.checked = true;
-    });
-
-    if (paymentsBox) paymentsBox.addEventListener('change', enforceDeps);
-    enforceDeps(); // apply on load in case checkboxes start checked
-
-    function deny() {
-      const redirectUri = '${redirect_uri || ''}' || 'http://127.0.0.1:3000/consents/callback';
-      const consentId = '${consentId || ''}';
-      window.location.href = redirectUri + '?consentId=' + consentId + '&status=REJECTED';
-    }
-  </script>
-</body>
-</html>`);
+    res.send(html);
 });
 
 // 2. Handle Approval — stores selected accounts and granted permissions alongside the auth code
