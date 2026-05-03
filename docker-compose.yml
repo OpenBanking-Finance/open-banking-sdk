@@ -1,13 +1,16 @@
 version: '3.8'
 
 services:
-  adapter:
+  adapter-bank:
     build: .
-    container_name: bca_adapter
+    container_name: ${BANK_ID:-adapter}_bank
     ports:
-      - "${ADAPTER_PORT:-3005}:3005"
+      - "${ADAPTER_PORT:-3005}:${ADAPTER_PORT:-3005}"
     environment:
-      - BANK_CORE_URL=${BANK_CORE_URL}
-      - HUB_CALLBACK_URL=${HUB_CALLBACK_URL}
+      ADAPTER_PORT: ${ADAPTER_PORT:-3005}
+      BANK_NAME: ${BANK_NAME:-Adapter Bank}
+      BANK_CORE_URL: ${BANK_CORE_URL:-http://host.docker.internal:8081}
+      HUB_CALLBACK_URL: ${HUB_CALLBACK_URL:-http://host.docker.internal:3000/consents/callback}
+      SESSION_SECRET: ${SESSION_SECRET:-adapter-session-secret-key-change-in-prod}
     env_file:
       - .env
