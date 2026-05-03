@@ -179,19 +179,32 @@ app.get('/consents/authorise', async (req, res) => {
     function enforceDeps() {
       if (!paymentsBox) return;
       if (paymentsBox.checked) {
-        // Force dependencies on
-        if (accountsBox) { accountsBox.checked = true; accountsBox.disabled = true; }
-        if (txBox)       { txBox.checked = true;       txBox.disabled = true;       }
+        // Force dependencies on — use CSS lock, NOT disabled (disabled prevents form submission)
+        if (accountsBox) { accountsBox.checked = true; }
+        if (txBox)       { txBox.checked = true; }
+        ['ACCOUNTS_READ', 'TRANSACTIONS_READ'].forEach(function(p) {
+          const row = document.getElementById('perm-row-' + p);
+          if (row) row.classList.add('disabled');
+        });
         if (hint) hint.style.display = 'block';
       } else {
-        if (accountsBox) accountsBox.disabled = false;
-        if (txBox)       txBox.disabled = false;
+        ['ACCOUNTS_READ', 'TRANSACTIONS_READ'].forEach(function(p) {
+          const row = document.getElementById('perm-row-' + p);
+          if (row) row.classList.remove('disabled');
+        });
         if (hint) hint.style.display = 'none';
       }
     }
 
+    // Prevent unchecking forced permissions by rechecking immediately
+    if (accountsBox) accountsBox.addEventListener('change', function() {
+      if (paymentsBox && paymentsBox.checked) this.checked = true;
+    });
+    if (txBox) txBox.addEventListener('change', function() {
+      if (paymentsBox && paymentsBox.checked) this.checked = true;
+    });
+
     if (paymentsBox) paymentsBox.addEventListener('change', enforceDeps);
-    // If the user unchecks accounts/transactions while payments is off — no restriction
     enforceDeps(); // apply on load in case checkboxes start checked
 
     function deny() {
@@ -277,17 +290,7 @@ app.get('/accounts', async (req, res) => {
     try {
         console.log(`[Adapter] Calling Core Bank: ${BANK_CORE_URL}/internal/accounts?user=${userId}`);
         const response = await axios.get(`${BANK_CORE_URL}/internal/accounts?user=${userId}`);
-
-        // Normaliza a lista de contas garantindo sempre accountName e accountType
-        const accounts = (Array.isArray(response.data) ? response.data : []).map(acc => ({
-            id: acc.id,
-            accountName: acc.accountName || acc.displayName || acc.id,
-            accountType: acc.accountType || acc.type || 'SAVINGS',
-            balance: acc.balance,
-            currency: acc.currency
-        }));
-
-        res.json({ accounts, bank: process.env.BANK_NAME || 'Adapter Bank' });
+        res.json({ accounts: response.data, bank: process.env.BANK_NAME || 'Adapter Bank' });
     } catch (err) {
         console.error(`[Adapter] Core Bank communication failed for user ${userId}:`, err.message);
         res.status(502).json({ error: 'Core Bank communication failed' });
